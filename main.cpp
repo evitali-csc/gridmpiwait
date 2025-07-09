@@ -1,12 +1,14 @@
 #include <chrono>
 #include <cmath>
-#include <format>
 #include <iostream>
 #include <mpi.h>
 #include <spdlog/spdlog.h>
 #include <sstream>
-#include <thrust/device_vector.h>
 #include <vector>
+
+#if defined(__CUDACC__) || defined(__HIPCC__)
+#include <thrust/device_vector.h>
+#endif
 
 using Timer = std::chrono::high_resolution_clock;
 
@@ -93,8 +95,12 @@ int main(int argc, char *argv[]) {
     s << q << ", ";
   spdlog::info("rank={}, nbr=[{}]", rank, s.str());
 
+#if defined(__CUDACC__) || defined(__HIPCC__)
   using Vector = thrust::device_vector<double>;
-
+#else
+  using Vector = std::vector<double>;
+#endif
+  
   int datasize = 1000000;
   std::vector<MPI_Request> requests(2 * neighbours.size(), MPI_REQUEST_NULL);
   std::vector<Vector> sendbuf(neighbours.size(), Vector(datasize, 3.14));
@@ -105,8 +111,13 @@ int main(int argc, char *argv[]) {
     using TimerT = std::chrono::duration<double, std::ratio<1>>;
     auto t0 = Timer::now();
     for (std::size_t i = 0; i < neighbours.size(); ++i) {
+#if defined(__CUDACC__) || defined(__HIPCC__)
       double *rbuf = thrust::raw_pointer_cast(recvbuf[i].data());
       double *sbuf = thrust::raw_pointer_cast(sendbuf[i].data());
+#else
+      double *rbuf = recvbuf[i].data();
+      double *sbuf = sendbuf[i].data();
+#endif
       MPI_Irecv(rbuf, recvbuf[i].size(), MPI_DOUBLE, neighbours[i], MPI_ANY_TAG,
                 MPI_COMM_WORLD, &requests[i + neighbours.size()]);
       MPI_Isend(sbuf, sendbuf[i].size(), MPI_DOUBLE, neighbours[i], 0,
